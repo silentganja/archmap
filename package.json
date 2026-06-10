@@ -1,6 +1,6 @@
 {
   "name": "archmap",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Discover the architecture your code actually has — not the one you think it has.",
   "keywords": [
     "architecture",
