@@ -1,5 +1,5 @@
 /**
- * CLI — command-line interface using Commander.
+ * CLI - command-line interface using Commander.
  *
  * Usage:
  *   npx archmap [directory]          # Analyze project
@@ -28,7 +28,7 @@ export async function runCli(): Promise<void> {
   program
     .name('archmap')
     .description(
-      'Discover the architecture your code actually has — not the one you think it has.'
+      'Discover the architecture your code actually has - not the one you think it has.'
     )
     .version('0.2.0')
     .argument('[directory]', 'Directory to analyze', '.')
@@ -97,7 +97,7 @@ export async function run(opts: ArchMapOptions): Promise<ArchMapResult> {
 
   const graph = buildGraph(sources);
 
-  // Update line counts (lazy — only compute when needed)
+  // Update line counts (lazy - only compute when needed)
   for (const node of graph.nodes.values()) {
     if (node.lineCount === 0) {
       try {

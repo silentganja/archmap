@@ -31,12 +31,12 @@ npm run build
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-- `feat:` — new feature
-- `fix:` — bug fix
-- `docs:` — documentation only
-- `refactor:` — code change that neither fixes a bug nor adds a feature
-- `test:` — adding or updating tests
-- `chore:` — maintenance tasks
+- `feat:` - new feature
+- `fix:` - bug fix
+- `docs:` - documentation only
+- `refactor:` - code change that neither fixes a bug nor adds a feature
+- `test:` - adding or updating tests
+- `chore:` - maintenance tasks
 
 ## Release process
 

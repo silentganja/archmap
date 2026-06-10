@@ -1,5 +1,5 @@
 /**
- * Scanner — discovers and parses source files using the TypeScript Compiler API.
+ * Scanner - discovers and parses source files using the TypeScript Compiler API.
  *
  * For v0.1 we handle .ts, .tsx, .js, .jsx, .mjs, .cjs.
  * Future: tree-sitter for .py, .go, .rs, etc.
@@ -148,7 +148,7 @@ export function parseFile(filePath: string): SourceFile {
 
     // ── Export declarations ──────────────────────────────
     if (ts.isExportDeclaration(node)) {
-      // export { x } from './foo' — re-exports
+      // export { x } from './foo' - re-exports
       if (node.exportClause && ts.isNamedExports(node.exportClause)) {
         for (const element of node.exportClause.elements) {
           exports.push({
@@ -159,7 +159,7 @@ export function parseFile(filePath: string): SourceFile {
           });
         }
       }
-      // export * from './foo' — star re-export
+      // export * from './foo' - star re-export
       if (!node.exportClause) {
         exports.push({
           name: '*',
@@ -290,7 +290,7 @@ export function resolveImport(
   fromFile: string
 ): string | null {
   if (!importPath.startsWith('.')) {
-    // External package — skip for now
+    // External package - skip for now
     return null;
   }
 
@@ -322,12 +322,12 @@ export function resolveImport(
     }
   }
 
-  // 3. Extensionless import — try all extensions
+  // 3. Extensionless import - try all extensions
   for (const ext of [...tsExts, ...jsExts]) {
     candidates.push(importPath + ext);
   }
 
-  // 4. Directory imports — try index files
+  // 4. Directory imports - try index files
   for (const ext of [...tsExts, ...jsExts]) {
     candidates.push(path.join(importPath, `index${ext}`));
   }

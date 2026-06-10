@@ -1,5 +1,5 @@
 /**
- * Terminal output renderer — this is where the magic becomes visible.
+ * Terminal output renderer - this is where the magic becomes visible.
  *
  * The output is designed to be screenshot-worthy:
  * - Clean box-drawn diagrams
@@ -82,7 +82,7 @@ function header(result: ArchMapResult, root: string): string {
   lines.push(chalk.bold.cyan(`╔${bar}╗`));
   lines.push(boxRow(
     chalk.bold.cyan('║'),
-    '  ' + chalk.bold.white('ARCHMAP — Architecture Discovery'),
+    '  ' + chalk.bold.white('ARCHMAP - Architecture Discovery'),
     chalk.bold.cyan('║'),
     HEADER_W
   ));
@@ -166,7 +166,7 @@ function sprawlSection(sprawlingFiles: string[]): string {
   lines.push(chalk.bold.red(`┌─── SPRAWL DETECTED ${bar.slice(16)}┐`));
   lines.push(boxRow(
     chalk.bold.red('│'),
-    chalk.white(`  ${sprawlingFiles.length} files don't cluster — they're imported by everything:`),
+    chalk.white(`  ${sprawlingFiles.length} files don't cluster - they're imported by everything:`),
     chalk.bold.red('│'),
     BOX_W
   ));
@@ -277,7 +277,7 @@ function coChangeSection(report: CoChangeReport): string {
     lines.push(chalk.bold.blue(`┌─── GIT CO-CHANGE ANALYSIS ${bar.slice(22)}┐`));
     lines.push(boxRow(
       chalk.bold.blue('│'),
-      chalk.dim(`  Analyzed ${report.commitsAnalyzed} commits — no significant co-change patterns found.`),
+      chalk.dim(`  Analyzed ${report.commitsAnalyzed} commits - no significant co-change patterns found.`),
       chalk.bold.blue('│'),
       BOX_W
     ));
@@ -337,7 +337,7 @@ function coChangeSection(report: CoChangeReport): string {
     ));
     lines.push(boxRow(
       chalk.bold.blue('│'),
-      chalk.dim('  → Hidden coupling — consider a shared contract, interface, or merging.'),
+      chalk.dim('  → Hidden coupling - consider a shared contract, interface, or merging.'),
       chalk.bold.blue('│'),
       BOX_W
     ));
@@ -378,7 +378,7 @@ function summaryFooter(result: ArchMapResult): string {
 
   if (result.sprawlingFiles.length > 0) {
     lines.push(
-      chalk.yellow(`  → ${result.sprawlingFiles.length} files show signs of sprawl — unclustered, high-coupling files.`)
+      chalk.yellow(`  → ${result.sprawlingFiles.length} files show signs of sprawl - unclustered, high-coupling files.`)
     );
   }
 
@@ -391,7 +391,7 @@ function summaryFooter(result: ArchMapResult): string {
 
   if (result.coChange && result.coChange.crossModulePairs.length > 0) {
     lines.push(
-      chalk.red(`  → ${result.coChange.crossModulePairs.length} cross-module co-change pairs — hidden coupling detected.`)
+      chalk.red(`  → ${result.coChange.crossModulePairs.length} cross-module co-change pairs - hidden coupling detected.`)
     );
   }
 

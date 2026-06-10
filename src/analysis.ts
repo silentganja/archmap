@@ -1,5 +1,5 @@
 /**
- * Analysis engine — detects boundary violations, tangled interfaces,
+ * Analysis engine - detects boundary violations, tangled interfaces,
  * and generates actionable restructure suggestions.
  */
 
@@ -148,7 +148,7 @@ export function generateSuggestions(
 
       suggestions.push({
         type: 'extract-interface',
-        description: `Modules "${modAName}" and "${modBName}" change together in ${info.count} commit pairs. Hidden coupling — consider a shared contract or merging.`,
+        description: `Modules "${modAName}" and "${modBName}" change together in ${info.count} commit pairs. Hidden coupling - consider a shared contract or merging.`,
         files: info.files.slice(0, 5),
         impactEstimate: info.count >= 5 ? 'high' : 'medium',
       });
@@ -207,7 +207,7 @@ export function generateSuggestions(
     }
   }
 
-  // 3. Detect files with high betweenness — suggest extracting interface
+  // 3. Detect files with high betweenness - suggest extracting interface
   const hubFiles: string[] = [];
   for (const node of graph.nodes.values()) {
     if (node.inDegree >= 5 && node.outDegree >= 5) {

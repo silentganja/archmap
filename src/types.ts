@@ -1,5 +1,5 @@
 /**
- * Core types for archmap — the architecture mapper.
+ * Core types for archmap - the architecture mapper.
  */
 
 // ─── File & Symbol ────────────────────────────────────────────────
@@ -115,7 +115,7 @@ export interface CoChangeReport {
   commitsAnalyzed: number;
   /** Files that changed in the analyzed window */
   filesWithHistory: number;
-  /** Pairs that cross module boundaries — architecture smells */
+  /** Pairs that cross module boundaries - architecture smells */
   crossModulePairs: CoChangePair[];
   /** Average co-change rate across all pairs */
   averageCoChange: number;
@@ -135,7 +135,7 @@ export interface ArchMapResult {
 
   /** Discovered modules (by community detection) */
   discoveredModules: Module[];
-  /** Files that don't cluster — the "sprawl" */
+  /** Files that don't cluster - the "sprawl" */
   sprawlingFiles: string[];
   /** The current folder structure's directories */
   folderStructure: FolderNode;

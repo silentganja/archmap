@@ -1,5 +1,5 @@
 /**
- * Graph engine — builds the dependency graph and runs community detection
+ * Graph engine - builds the dependency graph and runs community detection
  * to discover natural module boundaries.
  *
  * Uses the Louvain algorithm for community detection on the undirected
@@ -68,7 +68,7 @@ export function buildGraph(files: SourceFile[]): DependencyGraph {
     adjacency.set(file.path, new Set());
   }
 
-  // Create edges from imports — merge same (from, to) pairs
+  // Create edges from imports - merge same (from, to) pairs
   for (const file of files) {
     const out = adjacency.get(file.path)!;
 
@@ -177,7 +177,7 @@ export function detectCommunities(graph: DependencyGraph): {
   totalWeight = totalWeight / 2; // each edge counted twice
 
   if (totalWeight === 0) {
-    // No edges — every file is its own module
+    // No edges - every file is its own module
     const moduleIds = new Map<string, string>();
     filePaths.forEach((fp, i) => moduleIds.set(fp, `m${i}`));
     return {
@@ -340,7 +340,7 @@ export function detectCommunities(graph: DependencyGraph): {
 }
 
 /**
- * Detect sprawling files — files that don't cluster well.
+ * Detect sprawling files - files that don't cluster well.
  * A file is "sprawl" if it has high in-degree AND high out-degree,
  * meaning it's a hub that couples many modules together.
  */

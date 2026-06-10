@@ -1,10 +1,10 @@
 /**
- * Git co-change analysis — discovers files that change together
+ * Git co-change analysis - discovers files that change together
  * in the same commits, revealing hidden coupling that static
  * import analysis can't detect.
  *
  * Two files that always change together but don't import each
- * other have a HIDDEN DEPENDENCY — they share logic, a contract,
+ * other have a HIDDEN DEPENDENCY - they share logic, a contract,
  * or an implicit convention. This is the architecture you can't
  * see in the source code alone.
  */
@@ -66,7 +66,7 @@ export function analyzeGitHistory(
       }
     );
   } catch (err: any) {
-    // Timeout or buffer overflow — try with fewer commits
+    // Timeout or buffer overflow - try with fewer commits
     if (maxCommits > 100) {
       return analyzeGitHistory(filePaths, root, moduleIds, 100);
     }
@@ -221,7 +221,7 @@ function parseGitLog(
     }
 
     if (trimmed.startsWith('COMMIT ')) {
-      // New commit starts — push previous if it has files
+      // New commit starts - push previous if it has files
       if (currentFiles.size > 0) {
         commits.push(currentFiles);
         currentFiles = new Set<string>();
@@ -229,7 +229,7 @@ function parseGitLog(
       continue;
     }
 
-    // This is a file path — only include if it's in our analyzed set
+    // This is a file path - only include if it's in our analyzed set
     if (fileSet.has(trimmed)) {
       currentFiles.add(trimmed);
     }
