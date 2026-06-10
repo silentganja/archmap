@@ -1,18 +1,26 @@
 /**
- * Scanner - discovers and parses source files using the TypeScript Compiler API.
+ * Scanner - discovers source files and routes to language-specific parsers.
  *
- * For v0.1 we handle .ts, .tsx, .js, .jsx, .mjs, .cjs.
- * Future: tree-sitter for .py, .go, .rs, etc.
+ * File discovery works across all registered languages (TS/JS, Python, Go, Rust).
+ * Parsing delegates to the appropriate LanguageParser based on file extension.
+ *
+ * v0.3 — multi-language support
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as ts from 'typescript';
-import type { SourceFile, ExportSymbol, ImportSymbol } from './types.js';
+import type { SourceFile } from './types.js';
+import {
+  getParser,
+  getAllExtensions,
+  getLanguageMap,
+} from './parsers/index.js';
 
-const SUPPORTED_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-]);
+// Import parser modules to trigger registration
+import './parsers/typescript.js';
+import './parsers/python.js';
+import './parsers/go.js';
+import './parsers/rust.js';
 
 const DEFAULT_EXCLUDE = [
   'node_modules',
@@ -24,6 +32,11 @@ const DEFAULT_EXCLUDE = [
   '.turbo',
   'coverage',
   '.cache',
+  'target',         // Rust build output
+  'vendor',         // Go vendor
+  '.venv',          // Python virtualenv
+  'venv',
+  '__pypackages__',
 ];
 
 function shouldExclude(filePath: string, excludePatterns: string[]): boolean {
@@ -33,6 +46,7 @@ function shouldExclude(filePath: string, excludePatterns: string[]): boolean {
 
 /**
  * Recursively discover all source files under `root`.
+ * Supports all registered language extensions.
  */
 export function discoverFiles(
   root: string,
@@ -41,6 +55,7 @@ export function discoverFiles(
 ): string[] {
   const results: string[] = [];
   const allExclude = [...DEFAULT_EXCLUDE, ...exclude];
+  const supportedExtensions = new Set(getAllExtensions());
 
   function walk(dir: string): void {
     let entries: fs.Dirent[];
@@ -58,7 +73,7 @@ export function discoverFiles(
         walk(fullPath);
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
-        if (SUPPORTED_EXTENSIONS.has(ext)) {
+        if (supportedExtensions.has(ext)) {
           if (include.length === 0 || include.some((p) => fullPath.includes(p))) {
             results.push(fullPath);
           }
@@ -72,294 +87,265 @@ export function discoverFiles(
 }
 
 /**
- * Parse a single source file and extract imports/exports.
+ * Parse a single source file by delegating to the appropriate language parser.
  */
 export function parseFile(filePath: string): SourceFile {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    content,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ true
-  );
+  const ext = path.extname(filePath).toLowerCase();
+  const parser = getParser(ext);
 
-  const imports: ImportSymbol[] = [];
-  const exports: ExportSymbol[] = [];
-
-  // Walk the AST
-  function visit(node: ts.Node): void {
-    // ── Import declarations ──────────────────────────────
-    if (ts.isImportDeclaration(node)) {
-      const moduleSpecifier = node.moduleSpecifier;
-      if (ts.isStringLiteral(moduleSpecifier)) {
-        const modulePath = moduleSpecifier.text;
-        const importClause = node.importClause;
-
-        if (importClause) {
-          // Default import
-          if (importClause.name) {
-            imports.push({
-              name: importClause.name.text,
-              modulePath,
-              resolvedPath: null, // resolved later
-              isDefault: true,
-              isRelative: modulePath.startsWith('.'),
-              line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-            });
-          }
-
-          // Named imports
-          if (importClause.namedBindings) {
-            if (ts.isNamedImports(importClause.namedBindings)) {
-              for (const element of importClause.namedBindings.elements) {
-                imports.push({
-                  name: element.name.text,
-                  modulePath,
-                  resolvedPath: null,
-                  isDefault: false,
-                  isRelative: modulePath.startsWith('.'),
-                  line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-                });
-              }
-            } else if (ts.isNamespaceImport(importClause.namedBindings)) {
-              imports.push({
-                name: importClause.namedBindings.name.text,
-                modulePath,
-                resolvedPath: null,
-                isDefault: false,
-                isRelative: modulePath.startsWith('.'),
-                line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-              });
-            }
-          }
-        } else {
-          // Side-effect import: import './foo'
-          imports.push({
-            name: '*',
-            modulePath,
-            resolvedPath: null,
-            isDefault: false,
-            isRelative: modulePath.startsWith('.'),
-            line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-          });
-        }
-      }
-    }
-
-    // ── Export declarations ──────────────────────────────
-    if (ts.isExportDeclaration(node)) {
-      // export { x } from './foo' - re-exports
-      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        for (const element of node.exportClause.elements) {
-          exports.push({
-            name: element.name.text,
-            kind: 'unknown',
-            isDefault: false,
-            line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-          });
-        }
-      }
-      // export * from './foo' - star re-export
-      if (!node.exportClause) {
-        exports.push({
-          name: '*',
-          kind: 'unknown',
-          isDefault: false,
-          line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-        });
-      }
-    }
-
-    // ── Named exports (function, class, variable) ────────
-    if (
-      (ts.isFunctionDeclaration(node) ||
-        ts.isClassDeclaration(node) ||
-        ts.isVariableStatement(node)) &&
-      hasExportModifier(node)
-    ) {
-      // export function foo() {}
-      if (ts.isFunctionDeclaration(node) && node.name) {
-        exports.push({
-          name: node.name.text,
-          kind: 'function',
-          isDefault: false,
-          line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-        });
-      }
-      // export class Foo {}
-      if (ts.isClassDeclaration(node) && node.name) {
-        exports.push({
-          name: node.name.text,
-          kind: 'class',
-          isDefault: false,
-          line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-        });
-      }
-      // export const x = ...
-      if (ts.isVariableStatement(node)) {
-        for (const decl of node.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name)) {
-            exports.push({
-              name: decl.name.text,
-              kind: 'variable',
-              isDefault: false,
-              line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-            });
-          }
-        }
-      }
-    }
-
-    // ── Export default ──────────────────────────────────
-    if (ts.isExportAssignment(node) && !node.isExportEquals) {
-      exports.push({
-        name: 'default',
-        kind: 'unknown',
-        isDefault: true,
-        line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-      });
-    }
-
-    // ── Type/Interface exports ──────────────────────────
-    if (
-      (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) &&
-      hasExportModifier(node)
-    ) {
-      exports.push({
-        name: node.name.text,
-        kind: ts.isInterfaceDeclaration(node) ? 'interface' : 'type',
-        isDefault: false,
-        line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-      });
-    }
-
-    // ── Enum exports ────────────────────────────────────
-    if (ts.isEnumDeclaration(node) && hasExportModifier(node)) {
-      exports.push({
-        name: node.name.text,
-        kind: 'enum',
-        isDefault: false,
-        line: ts.getLineAndCharacterOfPosition(sourceFile, node.pos).line + 1,
-      });
-    }
-
-    ts.forEachChild(node, visit);
+  if (!parser) {
+    // Fallback: return empty file with unknown language
+    const langMap = getLanguageMap();
+    return {
+      path: filePath,
+      relativePath: '',
+      language: langMap[ext] || 'unknown',
+      exports: [],
+      imports: [],
+    };
   }
 
-  visit(sourceFile);
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const { imports, exports } = parser.parse(content, filePath);
 
-  const ext = path.extname(filePath).toLowerCase();
-  const langMap: Record<string, string> = {
-    '.ts': 'typescript',
-    '.tsx': 'typescript',
-    '.js': 'javascript',
-    '.jsx': 'javascript',
-    '.mjs': 'javascript',
-    '.cjs': 'javascript',
-  };
+  const langMap = getLanguageMap();
 
   return {
     path: filePath,
-    relativePath: '', // set by caller
-    language: langMap[ext] || 'unknown',
+    relativePath: '',
+    language: parser.language,
     exports,
     imports,
   };
 }
 
 /**
- * Check if a node has the `export` keyword modifier.
- */
-function hasExportModifier(
-  node: ts.Node
-): boolean {
-  const modifiers = ts.canHaveModifiers(node)
-    ? ts.getModifiers(node)
-    : undefined;
-  if (!modifiers) return false;
-  return modifiers.some(
-    (m) => m.kind === ts.SyntaxKind.ExportKeyword
-  );
-}
-
-/**
  * Resolve relative imports to absolute file paths.
+ *
+ * Handles resolution for all supported languages:
+ *   - TS/JS: .ts/.tsx/.js/.jsx/.mjs/.cjs + index files
+ *   - Python: .py (dot-prefixed imports like from .foo)
+ *   - Go: .go
+ *   - Rust: .rs + mod.rs convention, crate:: → src/ resolution
  */
 export function resolveImport(
   importPath: string,
   fromFile: string
 ): string | null {
+  const ext = path.extname(fromFile).toLowerCase();
+
+  // Route to language-specific resolver
+  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
+    return resolveTsImport(importPath, fromFile);
+  }
+
+  if (ext === '.py') {
+    return resolvePyImport(importPath, fromFile);
+  }
+
+  if (ext === '.go') {
+    return resolveGoImport(importPath, fromFile);
+  }
+
+  if (ext === '.rs') {
+    return resolveRsImport(importPath, fromFile);
+  }
+
+  return null;
+}
+
+// ── TypeScript/JS resolver ───────────────────────────────────────
+
+function resolveTsImport(importPath: string, fromFile: string): string | null {
   if (!importPath.startsWith('.')) {
-    // External package - skip for now
-    return null;
+    return null; // external package
   }
 
   const dir = path.dirname(fromFile);
-
-  // Build candidates: try the path as-is, with extensions swapped,
-  // and with extensions appended. This handles all TS/JS module
-  // resolution styles (NodeNext .js→.ts, extensionless, etc.)
+  const tsExts = ['.ts', '.tsx'];
+  const jsExts = ['.js', '.jsx', '.mjs', '.cjs'];
+  const allExts = [...tsExts, ...jsExts];
   const candidates: string[] = [];
 
-  // 1. The exact path (works if import already has correct extension)
+  // 1. The exact path
   candidates.push(importPath);
 
   // 2. If import ends with .js or .jsx, also try .ts/.tsx equivalents
-  //    (TypeScript NodeNext resolution: imports say .js but files are .ts)
-  const jsExts = ['.js', '.jsx', '.mjs', '.cjs'];
-  const tsExts = ['.ts', '.tsx'];
   for (const jsExt of jsExts) {
     if (importPath.endsWith(jsExt)) {
       const base = importPath.slice(0, -jsExt.length);
-      // Try matching .ts file (e.g., import './foo.js' → './foo.ts')
       for (const tsExt of tsExts) {
         candidates.push(base + tsExt);
       }
-      // Also try the base as a directory with index files
-      for (const ext of [...tsExts, ...jsExts]) {
-        candidates.push(path.join(base, `index${ext}`));
+      for (const e of allExts) {
+        candidates.push(path.join(base, `index${e}`));
       }
     }
   }
 
   // 3. Extensionless import - try all extensions
-  for (const ext of [...tsExts, ...jsExts]) {
-    candidates.push(importPath + ext);
+  for (const e of allExts) {
+    candidates.push(importPath + e);
   }
 
   // 4. Directory imports - try index files
-  for (const ext of [...tsExts, ...jsExts]) {
-    candidates.push(path.join(importPath, `index${ext}`));
+  for (const e of allExts) {
+    candidates.push(path.join(importPath, `index${e}`));
   }
 
   // 5. If import has an extension, also try stripping it and treating as dir
   const ext = path.extname(importPath);
-  if (ext && [...tsExts, ...jsExts].includes(ext)) {
+  if (ext && allExts.includes(ext)) {
     const base = importPath.slice(0, -ext.length);
-    // Already tried as base + other extensions above via loop
-    // Just treat base as directory
-    for (const e of [...tsExts, ...jsExts]) {
+    for (const e of allExts) {
       candidates.push(path.join(base, `index${e}`));
     }
   }
 
-  // Deduplicate
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (seen.has(candidate)) continue;
-    seen.add(candidate);
+  return tryCandidates(candidates, dir);
+}
 
-    const resolved = path.resolve(dir, candidate);
-    try {
-      if (fs.existsSync(resolved)) {
-        const stat = fs.statSync(resolved);
-        if (stat.isFile()) return resolved;
-      }
-    } catch {
-      // permission errors, broken symlinks, etc.
+// ── Python resolver ──────────────────────────────────────────────
+
+function resolvePyImport(importPath: string, fromFile: string): string | null {
+  // Python relative imports: from .module import x, from ..parent import x
+  if (importPath.startsWith('.')) {
+    // Count dots for parent traversal
+    let dots = 0;
+    while (importPath[dots] === '.') dots++;
+
+    const modulePart = importPath.slice(dots);
+    let dir = path.dirname(fromFile);
+
+    // Go up for each extra dot beyond the first
+    for (let i = 1; i < dots; i++) {
+      dir = path.dirname(dir);
     }
+
+    const modulePath = modulePart.replace(/\./g, '/');
+    const candidates = [
+      modulePath + '.py',
+      path.join(modulePath, '__init__.py'),
+    ];
+
+    return tryCandidates(candidates, dir);
   }
 
+  // Absolute import: from pkg.sub import thing
+  // Try resolving as relative to project root (best effort)
+  return null;
+}
+
+// ── Go resolver ──────────────────────────────────────────────────
+
+function resolveGoImport(importPath: string, fromFile: string): string | null {
+  if (!importPath.startsWith('.')) {
+    return null; // external package
+  }
+
+  const dir = path.dirname(fromFile);
+
+  // Try as a file: ./models → ./models.go
+  const fileResult = tryCandidates([importPath + '.go'], dir);
+  if (fileResult) return fileResult;
+
+  // Try as a package directory: ./models → ./models/*.go (pick first)
+  const pkgDir = path.resolve(dir, importPath);
+  try {
+    if (fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()) {
+      const entries = fs.readdirSync(pkgDir);
+      for (const entry of entries) {
+        if (entry.endsWith('.go')) {
+          return path.join(pkgDir, entry);
+        }
+      }
+    }
+  } catch { /* skip */ }
+
+  return null;
+}
+
+// ── Rust resolver ────────────────────────────────────────────────
+
+function resolveRsImport(importPath: string, fromFile: string): string | null {
+  const dir = path.dirname(fromFile);
+
+  // crate::foo::bar → src/foo/bar.rs or src/foo/bar/mod.rs
+  if (importPath.startsWith('crate::')) {
+    // Find the project root (directory containing Cargo.toml or src/)
+    const projectRoot = findRustProjectRoot(fromFile);
+    if (!projectRoot) return null;
+
+    const modulePath = importPath
+      .replace('crate::', '')
+      .replace(/::/g, '/');
+    const candidates = [
+      path.join(projectRoot, 'src', modulePath + '.rs'),
+      path.join(projectRoot, 'src', modulePath, 'mod.rs'),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          return candidate;
+        }
+      } catch { /* skip */ }
+    }
+    return null;
+  }
+
+  // super::foo → ../foo.rs or ../foo/mod.rs
+  if (importPath.startsWith('super::')) {
+    const parentDir = path.dirname(dir);
+    const modulePath = importPath.replace('super::', '').replace(/::/g, '/');
+    const candidates = [
+      path.join(parentDir, modulePath + '.rs'),
+      path.join(parentDir, modulePath, 'mod.rs'),
+    ];
+    return tryCandidates(candidates, '.');
+  }
+
+  // self::foo → ./foo.rs
+  if (importPath.startsWith('self::')) {
+    const modulePath = importPath.replace('self::', '').replace(/::/g, '/');
+    const candidates = [
+      path.join(dir, modulePath + '.rs'),
+      path.join(dir, modulePath, 'mod.rs'),
+    ];
+    return tryCandidates(candidates, '.');
+  }
+
+  // External crate (std::, regex::, etc.)
+  return null;
+}
+
+function findRustProjectRoot(fromFile: string): string | null {
+  let dir = path.dirname(fromFile);
+  for (let i = 0; i < 10; i++) {
+    try {
+      const cargoPath = path.join(dir, 'Cargo.toml');
+      if (fs.existsSync(cargoPath)) return dir;
+      const srcPath = path.join(dir, 'src');
+      if (fs.existsSync(srcPath)) return dir;
+    } catch { /* skip */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+function tryCandidates(candidates: string[], dir: string): string | null {
+  for (const candidate of candidates) {
+    const resolved = path.resolve(dir, candidate);
+    try {
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        return resolved;
+      }
+    } catch { /* skip */ }
+  }
   return null;
 }
 
@@ -367,6 +353,10 @@ export function resolveImport(
  * Count lines in a file (fast approximation).
  */
 export function countLines(filePath: string): number {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  return content.split('\n').length;
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return content.split('\n').length;
+  } catch {
+    return 0;
+  }
 }

@@ -30,7 +30,7 @@ export async function runCli(): Promise<void> {
     .description(
       'Discover the architecture your code actually has - not the one you think it has.'
     )
-    .version('0.2.0')
+    .version('0.3.0')
     .argument('[directory]', 'Directory to analyze', '.')
     .option('-i, --include <patterns...>', 'File patterns to include')
     .option('-e, --exclude <patterns...>', 'File patterns to exclude')

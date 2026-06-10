@@ -343,6 +343,272 @@ describe('analyzeGitHistory', () => {
 
 // ── Sprawl ───────────────────────────────────────────────────────
 
+// ── Multi-Language (v0.3) ─────────────────────────────────────
+
+const FIXTURES_PY = path.resolve(__dirname, 'fixtures', 'mock-python');
+const FIXTURES_GO = path.resolve(__dirname, 'fixtures', 'mock-go');
+const FIXTURES_RS = path.resolve(__dirname, 'fixtures', 'mock-rust');
+
+describe('discoverFiles with multi-language', () => {
+  it('discovers Python files', () => {
+    const files = discoverFiles(FIXTURES_PY);
+    const relative = files.map((f) => path.relative(FIXTURES_PY, f)).sort();
+
+    expect(relative).toContain('main.py');
+    expect(relative).toContain('utils.py');
+    expect(relative).toContain(path.join('models', '__init__.py'));
+    expect(relative).toContain(path.join('models', 'user.py'));
+    expect(files.length).toBe(4);
+  });
+
+  it('discovers Go files', () => {
+    const files = discoverFiles(FIXTURES_GO);
+    const relative = files.map((f) => path.relative(FIXTURES_GO, f)).sort();
+
+    expect(relative).toContain('main.go');
+    expect(relative).toContain('utils.go');
+    expect(relative).toContain(path.join('models', 'user.go'));
+    expect(files.length).toBe(3);
+  });
+
+  it('discovers Rust files', () => {
+    const files = discoverFiles(FIXTURES_RS);
+    const relative = files.map((f) => path.relative(FIXTURES_RS, f)).sort();
+
+    expect(relative).toContain('main.rs');
+    expect(relative).toContain('utils.rs');
+    expect(relative).toContain(path.join('models', 'mod.rs'));
+    expect(relative).toContain(path.join('models', 'user.rs'));
+    expect(files.length).toBe(4);
+  });
+});
+
+describe('parseFile — Python', () => {
+  it('extracts imports from Python files', () => {
+    const file = parseFile(path.join(FIXTURES_PY, 'main.py'));
+    expect(file.language).toBe('python');
+
+    const importModules = file.imports.map((i) => i.modulePath);
+    expect(importModules).toContain('os');
+    expect(importModules).toContain('collections');
+    expect(importModules).toContain('.utils');
+    expect(importModules).toContain('.models.user');
+    expect(importModules).toContain('sys');
+  });
+
+  it('extracts relative import flags for Python', () => {
+    const file = parseFile(path.join(FIXTURES_PY, 'main.py'));
+    const utilsImport = file.imports.find((i) => i.modulePath === '.utils');
+    expect(utilsImport).toBeDefined();
+    expect(utilsImport!.isRelative).toBe(true);
+  });
+
+  it('extracts exported functions and classes from Python', () => {
+    const file = parseFile(path.join(FIXTURES_PY, 'utils.py'));
+    const exportNames = file.exports.map((e) => e.name);
+
+    expect(exportNames).toContain('format_date');
+    expect(exportNames).toContain('clamp');
+    expect(exportNames).toContain('Helper');
+  });
+
+  it('extracts class exports from Python models', () => {
+    const file = parseFile(path.join(FIXTURES_PY, 'models', 'user.py'));
+    const exportNames = file.exports.map((e) => e.name);
+
+    expect(exportNames).toContain('User');
+    expect(exportNames).toContain('Admin');
+  });
+});
+
+describe('parseFile — Go', () => {
+  it('extracts imports from Go files', () => {
+    const file = parseFile(path.join(FIXTURES_GO, 'main.go'));
+    expect(file.language).toBe('go');
+
+    const importModules = file.imports.map((i) => i.modulePath);
+    expect(importModules).toContain('fmt');
+    expect(importModules).toContain('os');
+    expect(importModules).toContain('./models');
+    expect(importModules).toContain('./utils');
+  });
+
+  it('extracts exported (capitalized) functions from Go', () => {
+    const file = parseFile(path.join(FIXTURES_GO, 'utils.go'));
+    const exportNames = file.exports.map((e) => e.name);
+
+    expect(exportNames).toContain('FormatDate');
+    expect(exportNames).toContain('Clamp');
+    // Unexported function should not appear
+    expect(exportNames).not.toContain('privateHelper');
+  });
+
+  it('extracts exported types and methods from Go models', () => {
+    const file = parseFile(path.join(FIXTURES_GO, 'models', 'user.go'));
+    const exportNames = file.exports.map((e) => e.name);
+
+    expect(exportNames).toContain('User');
+    expect(exportNames).toContain('NewUser');
+    expect(exportNames).not.toContain('age');
+    expect(exportNames).not.toContain('hiddenHelper');
+  });
+});
+
+describe('parseFile — Rust', () => {
+  it('extracts imports from Rust files', () => {
+    const file = parseFile(path.join(FIXTURES_RS, 'main.rs'));
+    expect(file.language).toBe('rust');
+
+    const importModules = file.imports.map((i) => i.modulePath);
+    expect(importModules).toContain('std::env');
+    expect(importModules).toContain('crate::utils::format_date');
+    expect(importModules).toContain('crate::utils::clamp');
+    expect(importModules).toContain('crate::models::user::User');
+  });
+
+  it('extracts pub function exports from Rust', () => {
+    const file = parseFile(path.join(FIXTURES_RS, 'utils.rs'));
+    const exportNames = file.exports.map((e) => e.name);
+
+    expect(exportNames).toContain('format_date');
+    expect(exportNames).toContain('clamp');
+    // Private function should not appear
+    expect(exportNames).not.toContain('private_helper');
+  });
+
+  it('extracts pub struct and impl exports from Rust models', () => {
+    const file = parseFile(path.join(FIXTURES_RS, 'models', 'user.rs'));
+    const exportNames = file.exports.map((e) => e.name);
+
+    expect(exportNames).toContain('User');
+    expect(exportNames).toContain('new');
+    expect(exportNames).toContain('greet');
+    expect(exportNames).not.toContain('secret');
+    expect(exportNames).not.toContain('age');
+  });
+});
+
+describe('resolveImport — Python', () => {
+  it('resolves relative dot imports', () => {
+    const result = resolveImport(
+      '.utils',
+      path.join(FIXTURES_PY, 'main.py')
+    );
+    expect(result).toBe(path.join(FIXTURES_PY, 'utils.py'));
+  });
+
+  it('resolves relative dot-path imports', () => {
+    const result = resolveImport(
+      '.models.user',
+      path.join(FIXTURES_PY, 'main.py')
+    );
+    expect(result).toBe(path.join(FIXTURES_PY, 'models', 'user.py'));
+  });
+
+  it('returns null for external Python packages', () => {
+    const result = resolveImport('os', path.join(FIXTURES_PY, 'main.py'));
+    expect(result).toBeNull();
+  });
+});
+
+describe('resolveImport — Go', () => {
+  it('resolves relative Go imports', () => {
+    const result = resolveImport(
+      './utils',
+      path.join(FIXTURES_GO, 'main.go')
+    );
+    expect(result).toBe(path.join(FIXTURES_GO, 'utils.go'));
+  });
+
+  it('returns null for external Go packages', () => {
+    const result = resolveImport('fmt', path.join(FIXTURES_GO, 'main.go'));
+    expect(result).toBeNull();
+  });
+});
+
+describe('resolveImport — Rust', () => {
+  it('resolves super:: imports', () => {
+    const result = resolveImport(
+      'super::utils',
+      path.join(FIXTURES_RS, 'models', 'user.rs')
+    );
+    // super from models/user.rs goes to parent dir (mock-rust/)
+    expect(result).not.toBeNull();
+    expect(result!.endsWith('utils.rs')).toBe(true);
+  });
+});
+
+describe('buildGraph with multi-language', () => {
+  it('builds a graph for a Python project', () => {
+    const files = discoverFiles(FIXTURES_PY).map((fp) => {
+      const file = parseFile(fp);
+      file.relativePath = path.relative(FIXTURES_PY, fp);
+      for (const imp of file.imports) {
+        imp.resolvedPath = resolveImport(imp.modulePath, fp);
+      }
+      return file;
+    });
+
+    const graph = buildGraph(files);
+    expect(graph.nodes.size).toBe(4);
+    // main.py imports from utils.py and models/user.py (internal) + os, collections, sys (external)
+    // External imports are filtered, so at least 2 internal edges
+    expect(graph.edges.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('builds a graph for a Go project', () => {
+    const files = discoverFiles(FIXTURES_GO).map((fp) => {
+      const file = parseFile(fp);
+      file.relativePath = path.relative(FIXTURES_GO, fp);
+      for (const imp of file.imports) {
+        imp.resolvedPath = resolveImport(imp.modulePath, fp);
+      }
+      return file;
+    });
+
+    const graph = buildGraph(files);
+    expect(graph.nodes.size).toBe(3);
+    // main.go imports from utils and models (internal)
+    expect(graph.edges.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('builds a graph for a Rust project', () => {
+    const files = discoverFiles(FIXTURES_RS).map((fp) => {
+      const file = parseFile(fp);
+      file.relativePath = path.relative(FIXTURES_RS, fp);
+      for (const imp of file.imports) {
+        imp.resolvedPath = resolveImport(imp.modulePath, fp);
+      }
+      return file;
+    });
+
+    const graph = buildGraph(files);
+    expect(graph.nodes.size).toBe(4);
+  });
+
+  it('detects communities in a Python project', () => {
+    const files = discoverFiles(FIXTURES_PY).map((fp) => {
+      const file = parseFile(fp);
+      file.relativePath = path.relative(FIXTURES_PY, fp);
+      for (const imp of file.imports) {
+        imp.resolvedPath = resolveImport(imp.modulePath, fp);
+      }
+      return file;
+    });
+
+    const graph = buildGraph(files);
+    const { moduleIds, modules } = detectCommunities(graph);
+    expect(moduleIds.size).toBe(graph.nodes.size);
+    expect(modules.length).toBeGreaterThan(0);
+
+    // All nodes should have a module assigned
+    for (const nodePath of graph.nodes.keys()) {
+      expect(moduleIds.has(nodePath)).toBe(true);
+      expect(moduleIds.get(nodePath)).toBeTruthy();
+    }
+  });
+});
+
 describe('detectSprawl', () => {
   it('runs without error on test project', () => {
     const files = discoverFiles(FIXTURES).map((fp) => {
