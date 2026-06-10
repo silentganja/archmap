@@ -1,0 +1,62 @@
+{
+  "name": "archmap",
+  "version": "0.1.0",
+  "description": "Discover the architecture your code actually has — not the one you think it has.",
+  "keywords": [
+    "architecture",
+    "code-analysis",
+    "dependency-graph",
+    "module-boundaries",
+    "coupling",
+    "refactoring",
+    "static-analysis",
+    "community-detection",
+    "louvain",
+    "monolith",
+    "codebase-health"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/silentganja/archmap"
+  },
+  "homepage": "https://github.com/silentganja/archmap#readme",
+  "bugs": {
+    "url": "https://github.com/silentganja/archmap/issues"
+  },
+  "author": "silentganja",
+  "license": "MIT",
+  "bin": {
+    "archmap": "./bin/archmap.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/",
+    "bin/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node bin/archmap.js",
+    "test": "vitest",
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build",
+    "format": "prettier --write 'src/**/*.ts'"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0",
+    "prettier": "^3.2.0",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0"
+  }
+}
