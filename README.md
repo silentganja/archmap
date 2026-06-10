@@ -241,9 +241,9 @@ When using `--json`, the result includes the full analysis. The raw graph object
 |----------|-----------|--------|--------|
 | TypeScript | `.ts`, `.tsx` | TypeScript Compiler API | Supported |
 | JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | TypeScript Compiler API | Supported |
-| Python | `.py` | tree-sitter | Planned (v0.3) |
-| Go | `.go` | tree-sitter | Planned (v0.3) |
-| Rust | `.rs` | tree-sitter | Planned (v0.3) |
+| Python | `.py` | Line-based parser | Supported |
+| Go | `.go` | Line-based parser | Supported |
+| Rust | `.rs` | Line-based parser | Supported |
 
 ---
 
@@ -297,12 +297,18 @@ archmap src/ --json > archmap-report.json
 src/
 ├── index.ts          # Entry point, loads CLI
 ├── cli.ts            # CLI argument parsing via Commander
-├── scanner.ts        # File discovery and TS/JS AST parsing
+├── scanner.ts        # File discovery, parser routing, import resolution
 ├── graph.ts          # Dependency graph builder and Louvain clustering
 ├── analysis.ts       # Boundary violations, sprawl, restructure suggestions
 ├── git-analysis.ts   # Git co-change analysis
 ├── output.ts         # Terminal box-drawn diagrams and JSON output
-└── types.ts          # Shared TypeScript type definitions
+├── types.ts          # Shared TypeScript type definitions
+└── parsers/
+    ├── index.ts      # LanguageParser interface + extension registry
+    ├── typescript.ts # TS/JS parser (TypeScript Compiler API)
+    ├── python.ts     # Python parser (import, from-import, def/class)
+    ├── go.ts         # Go parser (import, capitalized exports)
+    └── rust.ts       # Rust parser (use, pub exports)
 ```
 
 ---
@@ -335,7 +341,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/). See [CON
 |---------|---------|--------|
 | v0.1 | TypeScript/JavaScript support, Louvain clustering, terminal output | Released |
 | v0.2 | Git co-change analysis | Released |
-| v0.3 | Multi-language support via tree-sitter (Python, Go, Rust) | Planned |
+| v0.3 | Multi-language support — Python, Go, Rust (line-based parsers) | Released |
 | v0.4 | PR integration - annotate PRs with architecture impact | Planned |
 | v0.5 | Interactive HTML report with zoomable dependency graph | Planned |
 | v1.0 | CI mode - fail builds on architecture regressions | Planned |
