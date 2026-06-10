@@ -295,25 +295,68 @@ export function resolveImport(
   }
 
   const dir = path.dirname(fromFile);
-  const candidates = [
-    importPath,
-    importPath + '.ts',
-    importPath + '.tsx',
-    importPath + '.js',
-    importPath + '.jsx',
-    importPath + '.mjs',
-    importPath + '.cjs',
-    path.join(importPath, 'index.ts'),
-    path.join(importPath, 'index.tsx'),
-    path.join(importPath, 'index.js'),
-    path.join(importPath, 'index.jsx'),
-  ];
 
+  // Build candidates: try the path as-is, with extensions swapped,
+  // and with extensions appended. This handles all TS/JS module
+  // resolution styles (NodeNext .js→.ts, extensionless, etc.)
+  const candidates: string[] = [];
+
+  // 1. The exact path (works if import already has correct extension)
+  candidates.push(importPath);
+
+  // 2. If import ends with .js or .jsx, also try .ts/.tsx equivalents
+  //    (TypeScript NodeNext resolution: imports say .js but files are .ts)
+  const jsExts = ['.js', '.jsx', '.mjs', '.cjs'];
+  const tsExts = ['.ts', '.tsx'];
+  for (const jsExt of jsExts) {
+    if (importPath.endsWith(jsExt)) {
+      const base = importPath.slice(0, -jsExt.length);
+      // Try matching .ts file (e.g., import './foo.js' → './foo.ts')
+      for (const tsExt of tsExts) {
+        candidates.push(base + tsExt);
+      }
+      // Also try the base as a directory with index files
+      for (const ext of [...tsExts, ...jsExts]) {
+        candidates.push(path.join(base, `index${ext}`));
+      }
+    }
+  }
+
+  // 3. Extensionless import — try all extensions
+  for (const ext of [...tsExts, ...jsExts]) {
+    candidates.push(importPath + ext);
+  }
+
+  // 4. Directory imports — try index files
+  for (const ext of [...tsExts, ...jsExts]) {
+    candidates.push(path.join(importPath, `index${ext}`));
+  }
+
+  // 5. If import has an extension, also try stripping it and treating as dir
+  const ext = path.extname(importPath);
+  if (ext && [...tsExts, ...jsExts].includes(ext)) {
+    const base = importPath.slice(0, -ext.length);
+    // Already tried as base + other extensions above via loop
+    // Just treat base as directory
+    for (const e of [...tsExts, ...jsExts]) {
+      candidates.push(path.join(base, `index${e}`));
+    }
+  }
+
+  // Deduplicate
+  const seen = new Set<string>();
   for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+
     const resolved = path.resolve(dir, candidate);
-    if (fs.existsSync(resolved)) {
-      const stat = fs.statSync(resolved);
-      if (stat.isFile()) return resolved;
+    try {
+      if (fs.existsSync(resolved)) {
+        const stat = fs.statSync(resolved);
+        if (stat.isFile()) return resolved;
+      }
+    } catch {
+      // permission errors, broken symlinks, etc.
     }
   }
 
