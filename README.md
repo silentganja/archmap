@@ -160,9 +160,32 @@ archmap --exclude 'test' '__mocks__'
 # Machine-readable output (for CI)
 archmap --json
 
+# Git co-change analysis (v0.2+)
+archmap --git
+
 # Verbose mode
 archmap -v
 ```
+
+### Git Co-Change Analysis (`--git`)
+
+The `--git` flag enables analysis of your commit history to find files that **change together** — revealing hidden coupling that static import analysis can't detect.
+
+```
+┌─── GIT CO-CHANGE ANALYSIS ────────────────────────────────────────────┐
+│  500 commits analyzed • 18 co-change pairs found                       │
+│                                                                        │
+│  auth.ts + permissions.ts  14× together  Jaccard: 0.82 ⚡CROSS-MODULE │
+│  payment.ts + invoice.ts   12× together  Jaccard: 0.71                │
+│  users.ts + roles.ts        9× together  Jaccard: 0.64 ⚡CROSS-MODULE │
+│                                                                        │
+│  ⚠ 7 co-change pairs cross module boundaries                         │
+│  → These files change together but belong to different modules.       │
+│  → Hidden coupling — consider a shared contract or merging.           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+When two files in **different modules** change together frequently, that's a hidden architectural dependency — they share logic, a contract, or an implicit convention that your folder structure doesn't capture.
 
 ---
 

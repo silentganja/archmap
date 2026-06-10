@@ -16,26 +16,51 @@ import type {
 } from './types.js';
 
 /**
+ * Simple seeded PRNG (mulberry32) for deterministic shuffles.
+ * Uses a fixed seed so archmap results are reproducible.
+ */
+function seededRandom(seed: number): () => number {
+  return function () {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Deterministic Fisher-Yates shuffle. */
+function shuffle<T>(arr: T[], rand: () => number): T[] {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [result[i], result[j]] = [result[j]!, result[i]!];
+  }
+  return result;
+}
+
+/**
  * Build a directed dependency graph from parsed source files.
+ * Merges multiple imports from the same (from, to) file pair into
+ * a single edge with aggregated symbols.
  */
 export function buildGraph(files: SourceFile[]): DependencyGraph {
   const nodes = new Map<string, GraphNode>();
   const adjacency = new Map<string, Set<string>>();
-  const edges: DependencyEdge[] = [];
+  const edgeMap = new Map<string, DependencyEdge>();
 
   // Index files by path for quick lookup
   const fileSet = new Set(files.map((f) => f.path));
 
   // Create nodes
   for (const file of files) {
-    const lineCount = 0; // approximate, set later
     nodes.set(file.path, {
       path: file.path,
       relativePath: file.relativePath,
       outDegree: 0,
       inDegree: 0,
       exportCount: file.exports.length,
-      lineCount,
+      lineCount: 0, // set later by caller
       language: file.language,
       moduleId: null,
     });
@@ -43,39 +68,50 @@ export function buildGraph(files: SourceFile[]): DependencyGraph {
     adjacency.set(file.path, new Set());
   }
 
-  // Create edges from imports
+  // Create edges from imports — merge same (from, to) pairs
   for (const file of files) {
     const out = adjacency.get(file.path)!;
 
     for (const imp of file.imports) {
-      // Only track internal (relative) imports
+      // Only track internal (relative) imports that resolve
       if (!imp.resolvedPath || !fileSet.has(imp.resolvedPath)) continue;
 
       out.add(imp.resolvedPath);
 
-      // Track the edge
-      edges.push({
-        from: file.path,
-        to: imp.resolvedPath,
-        symbols: [imp.name],
-        kind: 'direct',
-        usageCount: 1,
-      });
-
-      // Update in-degree of target
-      const targetNode = nodes.get(imp.resolvedPath);
-      if (targetNode) {
-        targetNode.inDegree++;
+      const key = `${file.path}::${imp.resolvedPath}`;
+      const existing = edgeMap.get(key);
+      if (existing) {
+        if (!existing.symbols.includes(imp.name)) {
+          existing.symbols.push(imp.name);
+        }
+        existing.usageCount++;
+      } else {
+        edgeMap.set(key, {
+          from: file.path,
+          to: imp.resolvedPath,
+          symbols: [imp.name],
+          kind: 'direct',
+          usageCount: 1,
+        });
       }
     }
 
-    // Update out-degree
+    // Update out-degree (count unique targets)
     const node = nodes.get(file.path);
     if (node) {
       node.outDegree = out.size;
     }
   }
 
+  // Update in-degrees (count unique source files that import each target)
+  for (const edge of edgeMap.values()) {
+    const targetNode = nodes.get(edge.to);
+    if (targetNode) {
+      targetNode.inDegree++;
+    }
+  }
+
+  const edges = Array.from(edgeMap.values());
   return { nodes, edges, adjacency };
 }
 
@@ -85,13 +121,8 @@ export function buildGraph(files: SourceFile[]): DependencyGraph {
  * The Louvain algorithm maximizes modularity by iteratively moving nodes
  * between communities to increase the overall modularity score.
  *
- * Modularity Q = (1/2m) * Σ [A_uv - (k_u * k_v)/(2m)] * δ(c_u, c_v)
- *
- * where:
- *   A_uv = 1 if there's an edge between u and v (or we treat co-import as an edge)
- *   k_u = degree of node u
- *   m = total number of edges
- *   δ(c_u, c_v) = 1 if u and v are in the same community, else 0
+ * Uses a deterministic shuffle with a fixed seed so results are
+ * reproducible across runs.
  */
 export function detectCommunities(graph: DependencyGraph): {
   moduleIds: Map<string, string>;
@@ -163,8 +194,11 @@ export function detectCommunities(graph: DependencyGraph): {
   }
 
   // Initialize: each node is its own community
-  let community = new Map<string, number>();
+  const community = new Map<string, number>();
   filePaths.forEach((fp, i) => community.set(fp, i));
+
+  // Deterministic PRNG with fixed seed for reproducibility
+  const rand = seededRandom(42);
 
   // Louvain iteration
   let improved = true;
@@ -173,12 +207,8 @@ export function detectCommunities(graph: DependencyGraph): {
   for (let iter = 0; iter < maxIterations && improved; iter++) {
     improved = false;
 
-    // Shuffle node order for better convergence
-    const shuffled = [...filePaths];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
-    }
+    // Deterministic shuffle
+    const shuffled = shuffle(filePaths, rand);
 
     for (const node of shuffled) {
       const currentComm = community.get(node)!;
@@ -196,10 +226,6 @@ export function detectCommunities(graph: DependencyGraph): {
         );
       }
 
-      // Calculate modularity gain for moving to each neighbor community
-      let bestComm = currentComm;
-      let bestGain = 0;
-
       // Calculate current community's total degree
       const commTotals = new Map<number, number>();
       for (const [fp, c] of community) {
@@ -208,16 +234,17 @@ export function detectCommunities(graph: DependencyGraph): {
 
       const currentCommTotal = commTotals.get(currentComm) || 0;
 
+      // Calculate modularity gain for moving to each neighbor community
+      let bestComm = currentComm;
+      let bestGain = 0;
+
       for (const [targetComm, weightToComm] of commWeights) {
         if (targetComm === currentComm) continue;
 
         const targetCommTotal = commTotals.get(targetComm) || 0;
 
-        // ΔQ = [Σ_in + 2*k_i_in]/(2m) - [(Σ_tot + k_i)/(2m)]²
-        //       - [Σ_in/(2m) - (Σ_tot/(2m))² - (k_i/(2m))²]
-        // Simplified: ΔQ = (weightToComm / totalWeight) -
-
-        // Simplified modularity gain for weighted undirected graphs
+        // Simplified modularity gain for weighted undirected graphs:
+        // ΔQ ≈ (weight_to_comm / totalWeight) - (nodeDegree * (targetTotal - (currentTotal - nodeDegree))) / (2 * totalWeight²)
         const gain =
           weightToComm / totalWeight -
           (nodeDegree * (targetCommTotal - (currentCommTotal - nodeDegree))) /

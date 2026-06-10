@@ -9,6 +9,7 @@ import type {
   BoundaryViolation,
   RestructureSuggestion,
   FolderNode,
+  CoChangeReport,
 } from './types.js';
 import * as path from 'path';
 
@@ -113,9 +114,46 @@ export function findBoundaryViolations(
 export function generateSuggestions(
   modules: Module[],
   folderStructure: FolderNode,
-  graph: DependencyGraph
+  graph: DependencyGraph,
+  coChange?: CoChangeReport | null
 ): RestructureSuggestion[] {
   const suggestions: RestructureSuggestion[] = [];
+
+  // ── Co-change based suggestions (v0.2) ─────────────
+  if (coChange && coChange.crossModulePairs.length > 0) {
+    // Group cross-module pairs by module pair
+    const modulePairCounts = new Map<string, { count: number; files: string[] }>();
+    for (const pair of coChange.crossModulePairs) {
+      if (!pair.moduleA || !pair.moduleB) continue;
+      const key = [pair.moduleA, pair.moduleB].sort().join('::');
+      const existing = modulePairCounts.get(key);
+      if (existing) {
+        existing.count++;
+        if (!existing.files.includes(pair.fileA)) existing.files.push(pair.fileA);
+        if (!existing.files.includes(pair.fileB)) existing.files.push(pair.fileB);
+      } else {
+        modulePairCounts.set(key, { count: 1, files: [pair.fileA, pair.fileB] });
+      }
+    }
+
+    // High co-change across module boundaries = missing module or shared contract
+    const topModulePairs = Array.from(modulePairCounts.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 3);
+
+    for (const [key, info] of topModulePairs) {
+      const [modA, modB] = key.split('::');
+      const modAName = modules.find((m) => m.id === modA)?.name || modA || '?';
+      const modBName = modules.find((m) => m.id === modB)?.name || modB || '?';
+
+      suggestions.push({
+        type: 'extract-interface',
+        description: `Modules "${modAName}" and "${modBName}" change together in ${info.count} commit pairs. Hidden coupling — consider a shared contract or merging.`,
+        files: info.files.slice(0, 5),
+        impactEstimate: info.count >= 5 ? 'high' : 'medium',
+      });
+    }
+  }
 
   // 1. Find modules that are spread across many folders → suggest merge
   for (const mod of modules) {

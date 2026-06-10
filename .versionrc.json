@@ -1,0 +1,14 @@
+{
+  "types": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance Improvements" },
+    { "type": "refactor", "section": "Refactors" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "test", "section": "Tests" },
+    { "type": "chore", "hidden": true }
+  ],
+  "commitUrlFormat": "https://github.com/silentganja/archmap/commit/{{hash}}",
+  "compareUrlFormat": "https://github.com/silentganja/archmap/compare/{{previousTag}}...{{currentTag}}",
+  "issueUrlFormat": "https://github.com/silentganja/archmap/issues/{{id}}"
+}

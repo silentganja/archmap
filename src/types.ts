@@ -92,6 +92,35 @@ export interface Module {
   internalEdgeDensity: number;
 }
 
+// ─── Git Co-Change ──────────────────────────────────────────────────
+
+export interface CoChangePair {
+  fileA: string;
+  fileB: string;
+  /** Number of commits where both files changed together */
+  togetherCount: number;
+  /** Jaccard similarity: |A ∩ B| / |A ∪ B| */
+  jaccard: number;
+  /** How many standard deviations above the mean co-change rate */
+  surprise: number;
+  /** Modules these files belong to (for cross-module detection) */
+  moduleA: string | null;
+  moduleB: string | null;
+}
+
+export interface CoChangeReport {
+  /** Top co-change pairs */
+  pairs: CoChangePair[];
+  /** Total commits analyzed */
+  commitsAnalyzed: number;
+  /** Files that changed in the analyzed window */
+  filesWithHistory: number;
+  /** Pairs that cross module boundaries — architecture smells */
+  crossModulePairs: CoChangePair[];
+  /** Average co-change rate across all pairs */
+  averageCoChange: number;
+}
+
 // ─── Analysis Results ─────────────────────────────────────────────
 
 export interface ArchMapResult {
@@ -115,6 +144,9 @@ export interface ArchMapResult {
   boundaryViolations: BoundaryViolation[];
   /** Suggestion for restructuring */
   restructureSuggestions: RestructureSuggestion[];
+
+  /** Git co-change analysis (only when --git flag is used) */
+  coChange: CoChangeReport | null;
 
   /** Raw dependency graph (for advanced consumers) */
   graph: DependencyGraph;

@@ -18,6 +18,7 @@ import {
   generateSuggestions,
   buildFolderTree,
 } from './analysis.js';
+import { analyzeGitHistory } from './git-analysis.js';
 import { render, renderJson } from './output.js';
 import type { ArchMapOptions, ArchMapResult } from './types.js';
 
@@ -29,10 +30,11 @@ export async function runCli(): Promise<void> {
     .description(
       'Discover the architecture your code actually has — not the one you think it has.'
     )
-    .version('0.1.0')
+    .version('0.2.0')
     .argument('[directory]', 'Directory to analyze', '.')
     .option('-i, --include <patterns...>', 'File patterns to include')
     .option('-e, --exclude <patterns...>', 'File patterns to exclude')
+    .option('--git', 'Enable git co-change analysis', false)
     .option('--json', 'Output as JSON', false)
     .option('-v, --verbose', 'Verbose output', false)
     .action(async (directory: string, options: any) => {
@@ -43,7 +45,7 @@ export async function runCli(): Promise<void> {
         include: options.include || [],
         exclude: options.exclude || [],
         format: options.json ? 'json' : 'terminal',
-        gitAnalysis: false, // v0.2
+        gitAnalysis: options.git || false,
         verbose: options.verbose || false,
       };
 
@@ -113,6 +115,22 @@ export async function run(opts: ArchMapOptions): Promise<ArchMapResult> {
 
   const { moduleIds, modules } = detectCommunities(graph);
 
+  // ── Phase 4.5: Git co-change analysis ─────────────
+  let coChangeReport = null;
+  if (opts.gitAnalysis) {
+    if (opts.verbose) {
+      console.error(chalk.dim('  Analyzing git history for co-change patterns...'));
+    }
+    coChangeReport = analyzeGitHistory(filePaths, opts.root, moduleIds);
+    if (coChangeReport && opts.verbose) {
+      console.error(
+        chalk.dim(
+          `  Analyzed ${coChangeReport.commitsAnalyzed} commits, found ${coChangeReport.pairs.length} co-change pairs`
+        )
+      );
+    }
+  }
+
   // ── Phase 5: Analysis ─────────────────────────────
   if (opts.verbose) {
     console.error(chalk.dim('  Analyzing boundaries...'));
@@ -124,7 +142,8 @@ export async function run(opts: ArchMapOptions): Promise<ArchMapResult> {
   const restructureSuggestions = generateSuggestions(
     modules,
     folderStructure,
-    graph
+    graph,
+    coChangeReport
   );
 
   // ── Phase 6: Build result ─────────────────────────
@@ -135,6 +154,7 @@ export async function run(opts: ArchMapOptions): Promise<ArchMapResult> {
     fileCount: sources.length,
     edgeCount: graph.edges.length,
     languagesDetected: Array.from(languages),
+    coChange: coChangeReport,
     discoveredModules: modules,
     sprawlingFiles,
     folderStructure,
